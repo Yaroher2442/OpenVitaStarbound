@@ -3,7 +3,9 @@
 #include "StarTextureAtlas.hpp"
 #include "StarRenderer.hpp"
 
-#include "GL/glew.h"
+// #include "GL/glew.h"
+#include "vitaGL.h"
+// #include "GL/gl.h"
 
 namespace Star {
 
@@ -172,7 +174,7 @@ private:
     GLint textureSizeUniform = -1;
     RefPtr<GlLoneTexture> textureValue;
   };
-  
+
   struct GlFrameBuffer : RefCounter {
     GLuint id = 0;
     RefPtr<GlLoneTexture> texture;
@@ -202,7 +204,7 @@ private:
   static bool logGlErrorSummary(String prefix);
   static void uploadTextureImage(PixelFormat pixelFormat, Vec2U size, uint8_t const* data);
 
-  
+
   static RefPtr<GlLoneTexture> createGlTexture(ImageView const& image, TextureAddressing addressing, TextureFiltering filtering);
 
   shared_ptr<GlRenderBuffer> createGlRenderBuffer();

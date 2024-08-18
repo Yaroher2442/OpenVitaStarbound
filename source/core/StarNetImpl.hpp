@@ -16,7 +16,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <netinet/udp.h>
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <fcntl.h>

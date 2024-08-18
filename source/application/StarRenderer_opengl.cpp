@@ -1,11 +1,13 @@
 #include "StarRenderer_opengl.hpp"
-#include "StarJsonExtra.hpp"
 #include "StarCasting.hpp"
+#include "StarJsonExtra.hpp"
 #include "StarLogging.hpp"
 
 namespace Star {
 
 size_t const MultiTextureCount = 4;
+
+GLenum const TARGET_GL_RENDER = GL_TEXTURE_2D;
 
 char const* DefaultVertexShader = R"SHADER(
 #version 140
@@ -90,18 +92,17 @@ static void GLAPIENTRY GlMessageCallback(GLenum, GLenum type, GLuint, GLenum, GL
 */
 
 OpenGlRenderer::OpenGlRenderer() {
-  auto glewResult = glewInit();
-  if (glewResult != GLEW_OK && glewResult != GLEW_ERROR_NO_GLX_DISPLAY)
-    throw RendererException::format("Could not initialize GLEW: {}", (char*)glewGetErrorString(glewResult));
 
-  if (!GLEW_VERSION_2_0)
-    throw RendererException("OpenGL 2.0 not available!");
-
+  GLboolean result = vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  if (!result) {
+    Logger::error("Could not initialize SCE_GXM");
+    throw RendererException("Could not initialize SCE_GXM!");
+  }
   Logger::info("OpenGL version: '{}' vendor: '{}' renderer: '{}' shader: '{}'",
-      (const char*)glGetString(GL_VERSION),
-      (const char*)glGetString(GL_VENDOR),
-      (const char*)glGetString(GL_RENDERER),
-      (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
+               (const char*)glGetString(GL_VERSION),
+               (const char*)glGetString(GL_VENDOR),
+               (const char*)glGetString(GL_RENDERER),
+               (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
 
   glClearColor(0.0, 0.0, 0.0, 1.0);
   glEnable(GL_BLEND);
@@ -111,8 +112,8 @@ OpenGlRenderer::OpenGlRenderer() {
   //glDebugMessageCallback(GlMessageCallback, this);
 
   m_whiteTexture = createGlTexture(Image::filled({1, 1}, Vec4B(255, 255, 255, 255), PixelFormat::RGBA32),
-      TextureAddressing::Clamp,
-      TextureFiltering::Nearest);
+                                   TextureAddressing::Clamp,
+                                   TextureFiltering::Nearest);
   m_immediateRenderBuffer = createGlRenderBuffer();
 
   loadEffectConfig("internal", JsonObject(), {{"vertex", DefaultVertexShader}, {"fragment", DefaultFragmentShader}});
@@ -149,29 +150,30 @@ OpenGlRenderer::GlFrameBuffer::GlFrameBuffer(Json const& fbConfig) : config(fbCo
   if (texture->textureId == 0)
     throw RendererException("Could not generate OpenGL texture for framebuffer");
 
-  multisample = GLEW_VERSION_4_0 ? config.getUInt("multisample", 0) : 0;
-  GLenum target = multisample ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
-  glBindTexture(target, texture->glTextureId());
+  //VitaGl does not support multisample changes in runtime
+  // multisample = GLEW_VERSION_4_0 ? config.getUInt("multisample", 0) : 0;
+  // GLenum target = multisample ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+  glBindTexture(TARGET_GL_RENDER, texture->glTextureId());
 
-  Vec2U size = jsonToVec2U(config.getArray("size", { 256, 256 }));
+  Vec2U size = jsonToVec2U(config.getArray("size", {256, 256}));
 
-  if (multisample)
-    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, multisample, GL_RGBA8, size[0], size[1], GL_TRUE);
-  else
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size[0], size[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+  // if (multisample)
+  // glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, multisample, GL_RGBA8, size[0], size[1], GL_TRUE);
+  // else
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size[0], size[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size[0], size[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
   glGenFramebuffers(1, &id);
   if (!id)
     throw RendererException("Failed to create OpenGL framebuffer");
 
   glBindFramebuffer(GL_FRAMEBUFFER, id);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, texture->glTextureId(), 0);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, TARGET_GL_RENDER, texture->glTextureId(), 0);
 
   auto framebufferStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
   if (framebufferStatus != GL_FRAMEBUFFER_COMPLETE)
     throw RendererException("OpenGL framebuffer is not complete!");
 }
-
 
 OpenGlRenderer::GlFrameBuffer::~GlFrameBuffer() {
   glDeleteFramebuffers(1, &id);
@@ -185,7 +187,6 @@ void OpenGlRenderer::loadConfig(Json const& config) {
     Json config = pair.second;
     config = config.set("multisample", m_multiSampling);
     m_frameBuffers[pair.first] = make_ref<GlFrameBuffer>(config);
-
   }
   setScreenSize(m_screenSize);
   m_config = config;
@@ -223,11 +224,12 @@ void OpenGlRenderer::loadEffectConfig(String const& name, Json const& effectConf
   try {
     vertexShader = compileShader(GL_VERTEX_SHADER, "vertex");
     fragmentShader = compileShader(GL_FRAGMENT_SHADER, "fragment");
-  }
-  catch (RendererException const& e) {
+  } catch (RendererException const& e) {
     Logger::error("Shader compile error, using default: {}", e.what());
-    if (vertexShader) glDeleteShader(vertexShader);
-    if (fragmentShader) glDeleteShader(fragmentShader);
+    if (vertexShader)
+      glDeleteShader(vertexShader);
+    if (fragmentShader)
+      glDeleteShader(fragmentShader);
     vertexShader = compileShader(GL_VERTEX_SHADER, DefaultVertexShader);
     fragmentShader = compileShader(GL_FRAGMENT_SHADER, DefaultFragmentShader);
   }
@@ -315,16 +317,16 @@ void OpenGlRenderer::loadEffectConfig(String const& name, Json const& effectConf
     if (effectTexture.textureUniform == -1) {
       Logger::warn("OpenGL20 effect parameter '{}' has no associated uniform, skipping", p.first);
     } else {
-        effectTexture.textureUnit = parameterTextureUnit++;
-        glUniform1i(effectTexture.textureUniform, effectTexture.textureUnit);
+      effectTexture.textureUnit = parameterTextureUnit++;
+      glUniform1i(effectTexture.textureUniform, effectTexture.textureUnit);
 
-        effectTexture.textureAddressing = TextureAddressingNames.getLeft(p.second.getString("textureAddressing", "clamp"));
-        effectTexture.textureFiltering = TextureFilteringNames.getLeft(p.second.getString("textureFiltering", "nearest"));
-        if (auto tsu = p.second.optString("textureSizeUniform")) {
-          effectTexture.textureSizeUniform = glGetUniformLocation(m_program, tsu->utf8Ptr());
-          if (effectTexture.textureSizeUniform == -1)
-            Logger::warn("OpenGL20 effect parameter '{}' has textureSizeUniform '{}' with no associated uniform", p.first, *tsu);
-        }
+      effectTexture.textureAddressing = TextureAddressingNames.getLeft(p.second.getString("textureAddressing", "clamp"));
+      effectTexture.textureFiltering = TextureFilteringNames.getLeft(p.second.getString("textureFiltering", "nearest"));
+      if (auto tsu = p.second.optString("textureSizeUniform")) {
+        effectTexture.textureSizeUniform = glGetUniformLocation(m_program, tsu->utf8Ptr());
+        if (effectTexture.textureSizeUniform == -1)
+          Logger::warn("OpenGL20 effect parameter '{}' has textureSizeUniform '{}' with no associated uniform", p.first, *tsu);
+      }
 
       effect.textures[p.first] = effectTexture;
     }
@@ -441,16 +443,17 @@ void OpenGlRenderer::setMultiSampling(unsigned multiSampling) {
   if (m_multiSampling == multiSampling)
     return;
 
-  m_multiSampling = multiSampling;
-  if (m_multiSampling) {
-    glEnable(GL_MULTISAMPLE);
-    glEnable(GL_SAMPLE_SHADING);
-    glMinSampleShading(1.f);
-  } else {
-    glMinSampleShading(0.f);
-    glDisable(GL_SAMPLE_SHADING);
-    glDisable(GL_MULTISAMPLE);
-  }
+  //VitaGl does not support multisample changes in runtime
+  // m_multiSampling = multiSampling;
+  // if (m_multiSampling) {
+  // glEnable(GL_MULTISAMPLE);
+  // glEnable(GL_SAMPLE_SHADING);
+  // glMinSampleShading(1.f);
+  // } else {
+  // glMinSampleShading(0.f);
+  // glDisable(GL_SAMPLE_SHADING);
+  // glDisable(GL_MULTISAMPLE);
+  // }
   loadConfig(m_config);
 }
 
@@ -467,7 +470,7 @@ TextureGroupPtr OpenGlRenderer::createTextureGroup(TextureGroupSize textureSize,
     atlasNumCells = 256;
   else if (textureSize == TextureGroupSize::Medium)
     atlasNumCells = 128;
-  else // TextureGroupSize::Small
+  else// TextureGroupSize::Small
     atlasNumCells = 64;
 
   Logger::info("detected supported OpenGL texture size {}, using atlasNumCells {}", maxTextureSize, atlasNumCells);
@@ -505,20 +508,23 @@ void OpenGlRenderer::setScreenSize(Vec2U screenSize) {
   glUniform2f(m_screenSizeUniform, m_screenSize[0], m_screenSize[1]);
 
   for (auto& frameBuffer : m_frameBuffers) {
-    if (unsigned multisample = frameBuffer.second->multisample) {
-      glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, frameBuffer.second->texture->glTextureId());
-      glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, multisample, GL_RGBA8, m_screenSize[0], m_screenSize[1], GL_TRUE);
-    } else {
-      glBindTexture(GL_TEXTURE_2D, frameBuffer.second->texture->glTextureId());
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_screenSize[0], m_screenSize[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    }
+    //VitaGl does not support multisample changes in runtime
+    // if (unsigned multisample = frameBuffer.second->multisample) {
+    //   glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, frameBuffer.second->texture->glTextureId());
+    //   glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, multisample, GL_RGBA8, m_screenSize[0], m_screenSize[1], GL_TRUE);
+    // } else {
+    //   glBindTexture(GL_TEXTURE_2D, frameBuffer.second->texture->glTextureId());
+    //   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_screenSize[0], m_screenSize[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    // }
+    glBindTexture(GL_TEXTURE_2D, frameBuffer.second->texture->glTextureId());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_screenSize[0], m_screenSize[1], 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
   }
 }
 
 void OpenGlRenderer::startFrame() {
   if (m_scissorRect)
     glDisable(GL_SCISSOR_TEST);
-  
+
   for (auto& frameBuffer : m_frameBuffers) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBuffer.second->id);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -541,15 +547,15 @@ void OpenGlRenderer::finishFrame() {
   m_immediateRenderBuffer->set(empty);
 
   filter(m_liveTextureGroups, [](auto const& p) {
-        unsigned const CompressionsPerFrame = 1;
+    unsigned const CompressionsPerFrame = 1;
 
-        if (!p.unique() || p->textureAtlasSet.totalTextures() > 0) {
-          p->textureAtlasSet.compressionPass(CompressionsPerFrame);
-          return true;
-        }
+    if (!p.unique() || p->textureAtlasSet.totalTextures() > 0) {
+      p->textureAtlasSet.compressionPass(CompressionsPerFrame);
+      return true;
+    }
 
-        return false;
-      });
+    return false;
+  });
 
   // Blit if another shader hasn't
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -559,7 +565,7 @@ void OpenGlRenderer::finishFrame() {
 }
 
 OpenGlRenderer::GlTextureAtlasSet::GlTextureAtlasSet(unsigned atlasNumCells)
-  : TextureAtlasSet(16, atlasNumCells) {}
+    : TextureAtlasSet(16, atlasNumCells) {}
 
 GLuint OpenGlRenderer::GlTextureAtlasSet::createAtlasTexture(Vec2U const& size, PixelFormat pixelFormat) {
   GLuint glTextureId;
@@ -589,7 +595,7 @@ void OpenGlRenderer::GlTextureAtlasSet::destroyAtlasTexture(GLuint const& glText
 }
 
 void OpenGlRenderer::GlTextureAtlasSet::copyAtlasPixels(
-    GLuint const& glTexture, Vec2U const& bottomLeft, Image const& image) {
+  GLuint const& glTexture, Vec2U const& bottomLeft, Image const& image) {
   glBindTexture(GL_TEXTURE_2D, glTexture);
 
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -610,7 +616,7 @@ void OpenGlRenderer::GlTextureAtlasSet::copyAtlasPixels(
 }
 
 OpenGlRenderer::GlTextureGroup::GlTextureGroup(unsigned atlasNumCells)
-  : textureAtlasSet(atlasNumCells) {}
+    : textureAtlasSet(atlasNumCells) {}
 
 OpenGlRenderer::GlTextureGroup::~GlTextureGroup() {
   textureAtlasSet.reset();
@@ -821,11 +827,11 @@ void OpenGlRenderer::GlRenderBuffer::set(List<RenderPrimitive>& primitives) {
 
       // = prev and next are altered - the diagonal across the quad is bad for the rounding check
       appendBufferVertex(quad->a, textureIndex, textureOffset, quad->d, quad->b);
-      appendBufferVertex(quad->b, textureIndex, textureOffset, quad->a, quad->c); //
+      appendBufferVertex(quad->b, textureIndex, textureOffset, quad->a, quad->c);//
       appendBufferVertex(quad->c, textureIndex, textureOffset, quad->b, quad->d);
 
       appendBufferVertex(quad->a, textureIndex, textureOffset, quad->d, quad->b);
-      appendBufferVertex(quad->c, textureIndex, textureOffset, quad->b, quad->d); //
+      appendBufferVertex(quad->c, textureIndex, textureOffset, quad->b, quad->d);//
       appendBufferVertex(quad->d, textureIndex, textureOffset, quad->c, quad->a);
 
     } else if (auto poly = primitive.ptr<RenderPoly>()) {
@@ -833,9 +839,9 @@ void OpenGlRenderer::GlRenderBuffer::set(List<RenderPrimitive>& primitives) {
         tie(textureIndex, textureOffset) = addCurrentTexture(std::move(poly->texture));
 
         for (size_t i = 1; i < poly->vertexes.size() - 1; ++i) {
-            RenderVertex const& a = poly->vertexes[0],
-                                b = poly->vertexes[i],
-                                c = poly->vertexes[i + 1];
+          RenderVertex const &a = poly->vertexes[0],
+                             b = poly->vertexes[i],
+                             c = poly->vertexes[i + 1];
           appendBufferVertex(a, textureIndex, textureOffset, c, b);
           appendBufferVertex(b, textureIndex, textureOffset, a, c);
           appendBufferVertex(c, textureIndex, textureOffset, b, a);
@@ -854,6 +860,10 @@ void OpenGlRenderer::GlRenderBuffer::set(List<RenderPrimitive>& primitives) {
 bool OpenGlRenderer::logGlErrorSummary(String prefix) {
   if (GLenum error = glGetError()) {
     Logger::error("{}: ", prefix);
+    // vitaGl does not support GL_INVALID_FRAMEBUFFER_OPERATION
+    // else if (error == GL_INVALID_FRAMEBUFFER_OPERATION) {
+    // Logger::error("GL_INVALID_FRAMEBUFFER_OPERATION");
+    // }
     do {
       if (error == GL_INVALID_ENUM) {
         Logger::error("GL_INVALID_ENUM");
@@ -861,8 +871,6 @@ bool OpenGlRenderer::logGlErrorSummary(String prefix) {
         Logger::error("GL_INVALID_VALUE");
       } else if (error == GL_INVALID_OPERATION) {
         Logger::error("GL_INVALID_OPERATION");
-      } else if (error == GL_INVALID_FRAMEBUFFER_OPERATION) {
-        Logger::error("GL_INVALID_FRAMEBUFFER_OPERATION");
       } else if (error == GL_OUT_OF_MEMORY) {
         Logger::error("GL_OUT_OF_MEMORY");
       } else if (error == GL_STACK_UNDERFLOW) {
@@ -895,10 +903,12 @@ void OpenGlRenderer::uploadTextureImage(PixelFormat pixelFormat, Vec2U size, uin
   else {
     type = GL_FLOAT;
     if (pixelFormat == PixelFormat::RGB_F) {
-      internalFormat = GL_RGB32F;
+      // internalFormat = GL_RGB32F -> GL_RGB32F;
+      internalFormat = GL_RGB;
       format = GL_RGB;
     } else if (pixelFormat == PixelFormat::RGBA_F) {
-      internalFormat = GL_RGBA32F;
+      // internalFormat = GL_RGBA32F -> GL_RGBA;
+      internalFormat = GL_RGBA;
       format = GL_RGBA;
     } else
       throw RendererException("Unsupported texture format in OpenGlRenderer::uploadTextureImage");
@@ -917,7 +927,7 @@ void OpenGlRenderer::flushImmediatePrimitives(Mat3F const& transformation) {
 }
 
 auto OpenGlRenderer::createGlTexture(ImageView const& image, TextureAddressing addressing, TextureFiltering filtering)
-    ->RefPtr<GlLoneTexture> {
+  -> RefPtr<GlLoneTexture> {
   auto glLoneTexture = make_ref<GlLoneTexture>();
   glLoneTexture->textureFiltering = filtering;
   glLoneTexture->textureAddressing = addressing;
@@ -944,7 +954,6 @@ auto OpenGlRenderer::createGlTexture(ImageView const& image, TextureAddressing a
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   }
-
 
   if (!image.empty())
     uploadTextureImage(image.format, image.size, image.data);
@@ -986,7 +995,18 @@ void OpenGlRenderer::renderGlBuffer(GlRenderBuffer const& renderBuffer, Mat3F co
     glVertexAttribPointer(m_positionAttribute, 2, GL_FLOAT, GL_FALSE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, pos));
     glVertexAttribPointer(m_texCoordAttribute, 2, GL_FLOAT, GL_FALSE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, uv));
     glVertexAttribPointer(m_colorAttribute, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, color));
-    glVertexAttribIPointer(m_dataAttribute, 1, GL_INT, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, pack));
+
+    // vitaGl does not support glVertexAttribIPointer
+    // glVertexAttribIPointer(m_dataAttribute, 1, GL_INT, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, pack));
+    // Assuming that the 'pack' field in GlRenderVertex is an integer, you need to treat it as a float
+    // Convert the integer data to float in the shader, if necessary
+    // Two methods to do this:
+    // void  glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer);
+    // void vglVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, GLuint count, const GLvoid *pointer);
+    // vglVertexAttribPointer(m_dataAttribute, 1, GL_INT, GL_FALSE, sizeof(GlRenderVertex),1, (GLvoid*)offsetof(GlRenderVertex, pack));
+    glVertexAttribPointer(m_dataAttribute, 1, GL_INT, GL_FALSE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, pack));
+
+
 
     glDrawArrays(GL_TRIANGLES, 0, vb.vertexCount);
   }
@@ -1031,8 +1051,7 @@ void OpenGlRenderer::blitGlFrameBuffer(RefPtr<GlFrameBuffer> const& frameBuffer)
   glBlitFramebuffer(
     0, 0, size[0], size[1],
     0, 0, size[0], size[1],
-    GL_COLOR_BUFFER_BIT, GL_NEAREST
-  );
+    GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
   frameBuffer->blitted = true;
 }
@@ -1065,5 +1084,4 @@ GLuint OpenGlRenderer::Effect::getUniform(String const& name) {
   return find->second;
 }
 
-
-}
+}// namespace Star
