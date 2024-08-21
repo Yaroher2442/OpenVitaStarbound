@@ -16,7 +16,7 @@ SET (star_client_HEADERS
 
 SET (star_client_SOURCES
       StarClientApplication.cpp
-    )
+)
 
 IF (STAR_SYSTEM_WINDOWS)
   SET (star_client_RESOURCES

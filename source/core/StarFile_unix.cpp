@@ -1,36 +1,52 @@
 #include "StarFile.hpp"
-#include "StarFormat.hpp"
-#include "StarRandom.hpp"
-#include "StarEncode.hpp"
 
-#include <errno.h>
-#include <string.h>
-#include <limits.h>
-#include <stdlib.h>
 #include <dirent.h>
-#include <unistd.h>
+#include <filesystem>
 #include <libgen.h>
-#include <fcntl.h>
+#include <psp2common/kernel/iofilemgr.h>
+#include <sys/_default_fcntl.h>
 #include <sys/stat.h>
+#include <sys/syslimits.h>
+#include <sys/types.h>
+#include <sys/unistd.h>
+
+#ifndef DT_DIR
+#define DT_UNKNOWN 0
+#define DT_FIFO 1
+#define DT_CHR 2
+#define DT_DIR 4
+#define DT_BLK 6
+#define DT_REG 8
+#define DT_LNK 10
+#define DT_SOCK 12
+#define DT_WHT 14
+#endif
+
+#define P_tmpdir        "/tmp"
+extern "C" {
+int ftruncate(int fd, int cmd, ...);
+char* realpath(const char* __restrict path, char* __restrict resolved_path);
+int mkstemp(char*);
+}
 
 #ifdef STAR_SYSTEM_MACOSX
 #include <mach-o/dyld.h>
 #elif defined STAR_SYSTEM_FREEBSD
-#include <sys/types.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 namespace Star {
 
 namespace {
-  int fdFromHandle(void* ptr) {
-    return (int)(intptr_t)ptr;
-  }
-
-  void* handleFromFd(int handle) {
-    return (void*)(intptr_t)handle;
-  }
+int fdFromHandle(void* ptr) {
+  return (int)(intptr_t)ptr;
 }
+
+void* handleFromFd(int handle) {
+  return (void*)(intptr_t)handle;
+}
+}// namespace
 
 String File::convertDirSeparators(String const& path) {
   return path.replace("\\", "/");
@@ -64,11 +80,14 @@ List<pair<String, bool>> File::dirList(const String& dirName, bool skipDots) {
     String entryString = entry->d_name;
     if (!skipDots || (entryString != "." && entryString != "..")) {
       bool isDirectory = false;
-      if (entry->d_type == DT_DIR) {
+      if (SCE_SO_ISDIR(entry->d_stat.st_attr)) {
         isDirectory = true;
-      } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
-        isDirectory = File::isDirectory(File::relativeTo(dirName, entryString));
       }
+      // if (entry->d_type == DT_DIR) {
+      //   isDirectory = true;
+      // } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
+      //   isDirectory = File::isDirectory(File::relativeTo(dirName, entryString));
+      // }
       fileList.append({entryString, isDirectory});
     }
   }
@@ -111,7 +130,6 @@ String File::relativeTo(String const& relativeTo, String const& path) {
 
 String File::fullPath(const String& fileName) {
   char buffer[PATH_MAX];
-
   if (::realpath(fileName.utf8Ptr(), buffer) == NULL)
     throw IOException::format("realpath failed on file: '{}' problem path was: '{}'", fileName, buffer);
 
@@ -280,16 +298,31 @@ StreamOffset File::fsize(void* file) {
 }
 
 size_t File::pread(void* file, char* data, size_t len, StreamOffset position) {
-  return ::pread(fdFromHandle(file), data, len, position);
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::read(fd, data, len);
+  // return ::pread(fdFromHandle(file), data, len, position);
 }
 
 size_t File::pwrite(void* file, char const* data, size_t len, StreamOffset position) {
-  return ::pwrite(fdFromHandle(file), data, len, position);
+  // return ::pwrite(fdFromHandle(file), data, len, position);
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::write(fd, data, len);
 }
 
 void File::resize(void* f, StreamOffset size) {
   if (::ftruncate(fdFromHandle(f), size) < 0)
     throw IOException::format("resize error: {}", strerror(errno));
+  // if (lseek(fdFromHandle(f), size, SEEK_SET) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
+  //
+  // if (::write(fdFromHandle(f), "", 1) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
 }
 
-}
+}// namespace Star

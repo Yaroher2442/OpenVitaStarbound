@@ -59,7 +59,8 @@ IF (STAR_ENABLE_DISCORD_INTEGRATION)
       discord/achievement_manager.cpp
       discord/activity_manager.cpp
       discord/application_manager.cpp
-    )
+          ../core/reimpl/io.c
+  )
 ENDIF ()
 
 ADD_LIBRARY (star_application OBJECT ${star_application_SOURCES} ${star_application_HEADERS})

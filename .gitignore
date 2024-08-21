@@ -1,3 +1,5 @@
+.idea
+extras
 /build/
 /build_linux/
 /out/
@@ -18,7 +20,7 @@ enc_temp_folder/
 /tiled/
 /assets/user/
 /assets/devel/
-/assets/packed.pak
+/extras/assets/packed.pak
 /mods/*.pak
 /mods/*
 */.vs/

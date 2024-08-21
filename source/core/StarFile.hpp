@@ -3,6 +3,12 @@
 #include "StarIODevice.hpp"
 #include "StarString.hpp"
 
+// aded
+#include "StarEncode.hpp"
+#include "StarFile.hpp"
+#include "StarFormat.hpp"
+#include "StarRandom.hpp"
+
 namespace Star {
 
 STAR_CLASS(File);

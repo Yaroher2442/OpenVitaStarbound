@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.23)
-project(starbound)
+#cmake_minimum_required(VERSION 3.23)
+cmake_minimum_required(VERSION 3.14)
+project(starbound C CXX)
 include(FindPkgConfig)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
@@ -495,13 +496,14 @@ pkg_check_modules(VORBISFILE REQUIRED IMPORTED_TARGET vorbisfile)
 
 
 
+
 include_directories(SYSTEM
         ${FREETYPE_INCLUDE_DIRS}
         ${ZSTD_INCLUDE_DIRS}
         ${OPUS_INCLUDE_DIRS}
 
         ${OGGVORBIS_INCLUDE_DIR}
-        ${VORBIS_INCLUDE_DIR}
+#        ${VORBIS_INCLUDE_DIR}
         ${VORBISFILE_INCLUDE_DIR}
 )
 
@@ -513,14 +515,16 @@ set(STAR_EXT_LIBS ${STAR_EXT_LIBS}
         ${ZSTD_LIBRARIES}
         ${OPUS_LIBRARIES}
         ${OGG_LIBRARY}
-        ${VORBIS_LIBRARY}
-        ${VORBISFILE_LIBRARY}
+#        ${VORBIS_LIBRARY}
+        ${OGGVORBIS_LIBRARIES}
+        ${VORBISFILE_LIBRARIES}
 )
 
 set(STAR_INC_DIRS
         ${ZSTD_INCLUDE_DIRS}
         ${OPUS_INCLUDE_DIRS}
 )
+
 
 
 if (STAR_BUILD_GUI)
@@ -682,3 +686,27 @@ if (STAR_BUILD_GUI)
         endif ()
     endif ()
 endif ()
+
+set(VITA_MKSFOEX_FLAGS "-d ATTRIBUTE2=12")
+vita_create_self(eboot.bin ${CMAKE_PROJECT_NAME} UNSAFE)
+vita_create_vpk(starbound.vpk STARBOUND0 eboot.bin
+        VERSION 01.00
+        NAME starbound
+#        FILE ${CMAKE_SOURCE_DIR}/../extras/cpuinfo cpuinfo
+#        ${CMAKE_SOURCE_DIR}/../extras/meminfo meminfo
+#        ${CMAKE_SOURCE_DIR}/../extras/livearea/icon0.png sce_sys/icon0.png
+#        ${CMAKE_SOURCE_DIR}/../extras/livearea/pic0.png sce_sys/pic0.png
+#        ${CMAKE_SOURCE_DIR}/../extras/livearea/startup.png sce_sys/livearea/contents/startup.png
+#        ${CMAKE_SOURCE_DIR}/../extras/livearea/bg0.png sce_sys/livearea/contents/bg0.png
+#        ${CMAKE_SOURCE_DIR}/../extras/livearea/template.xml sce_sys/livearea/contents/template.xml
+
+#        ${CMAKE_SOURCE_DIR}/../extras/assets/opensd.pak opensd.pak
+)
+
+# Optional: used for "send" and "dump" targets
+set(PSVITAIP "192.168.1.69" CACHE STRING "PSVita IP (for FTP access)")
+set(PARSECOREPATH "$ENV{PARSECOREPATH}" CACHE STRING "vita-parse-core main.py")
+add_custom_target(dump
+        COMMAND ${CMAKE_SOURCE_DIR}/../extras/scripts/get_dump.sh ${PSVITAIP}
+        COMMAND python3 ${PARSECOREPATH} coredump ${CMAKE_PROJECT_NAME}
+)

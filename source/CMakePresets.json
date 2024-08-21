@@ -9,7 +9,10 @@
     {
       "name": "base",
       "hidden": true,
-      "architecture": { "value": "x64", "strategy": "external" },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
       "generator": "Ninja",
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
@@ -36,7 +39,9 @@
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [ "Windows" ]
+          "hostOS": [
+            "Windows"
+          ]
         }
       }
     },
@@ -55,7 +60,9 @@
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [ "Linux" ]
+          "hostOS": [
+            "Linux"
+          ]
         }
       }
     },
@@ -68,19 +75,25 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INCLUDE_PATH": "$env{VITASDK}/arm-vita-eabi/include",
         "CMAKE_LIBRARY_PATH": "$env{VITASDK}/arm-vita-eabi/lib",
-        "CMAKE_C_COMPILER":"$env{VITASDK}/bin/arm-vita-eabi-gcc",
-        "CMAKE_CXX_COMPILER":"$env{VITASDK}/bin/arm-vita-eabi-g++",
+        "CMAKE_C_COMPILER": "$env{VITASDK}/bin/arm-vita-eabi-gcc",
+        "CMAKE_CXX_COMPILER": "$env{VITASDK}/bin/arm-vita-eabi-g++",
         "STAR_ENABLE_STATIC_LIBGCC_LIBSTDCXX": false,
         "STAR_USE_JEMALLOC": false,
         "CMAKE_VERBOSE_MAKEFILE": true,
         "BUILD_TESTING": false,
         "STAR_ENABLE_STEAM_INTEGRATION": false,
         "STAR_ENABLE_DISCORD_INTEGRATION": false,
-        "BUILD_VITA": true
+        "BUILD_VITA": true,
+        "STAR_SYSTEM": "unix",
+        "STAR_SYSTEM_FAMILY": "unix",
+        "LUA_USE_POSIX": true,
+        "STAR_PRECOMPILED_HEADERS": false
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [ "Linux" ]
+          "hostOS": [
+            "Linux"
+          ]
         }
       }
     },
@@ -99,7 +112,9 @@
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [ "macOS" ]
+          "hostOS": [
+            "macOS"
+          ]
         }
       }
     },
@@ -108,7 +123,10 @@
       "name": "macos-arm-release",
       "displayName": "macOS ARM",
       "binaryDir": "${sourceParentDir}/build/macos-arm-release",
-      "architecture": { "value": "arm64", "strategy": "external" },
+      "architecture": {
+        "value": "arm64",
+        "strategy": "external"
+      },
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "arm64-osx-mixed",
         "CMAKE_LIBRARY_PATH": "${sourceParentDir}/lib/osx/arm64;${sourceParentDir}/lib/osx"
@@ -141,8 +159,14 @@
     {
       "name": "base",
       "hidden": true,
-      "output": { "outputOnFailure": true },
-      "filter": { "include": { "label": "NoAssets" } }
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "label": "NoAssets"
+        }
+      }
     },
     {
       "inherits": "base",

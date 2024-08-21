@@ -1,26 +1,31 @@
+#include "StarLogging.hpp"
 #include "StarThread.hpp"
 #include "StarTime.hpp"
-#include "StarLogging.hpp"
 
-#include <limits.h>
+#include <dirent.h>
+#include <dlfcn.h>
 #include <libgen.h>
+#include <limits.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <dlfcn.h>
-#include <dirent.h>
-#include <pthread.h>
 #ifdef STAR_SYSTEM_FREEBSD
 #include <pthread_np.h>
 #endif
-#include <sys/time.h>
 #include <errno.h>
+#include <psp2/kernel/threadmgr/thread.h>
+#include <sys/time.h>
 
 #ifdef MAXCOMLEN
 #define MAX_THREAD_NAMELEN MAXCOMLEN
 #else
 #define MAX_THREAD_NAMELEN 16
 #endif
+
+extern "C" {
+void usleep(uint64_t usecs);
+}
 
 namespace Star {
 
@@ -52,7 +57,7 @@ struct ThreadImpl {
   }
 
   ThreadImpl(std::function<void()> function, String name)
-    : function(std::move(function)), name(std::move(name)), stopped(true), joined(true) {}
+      : function(std::move(function)), name(std::move(name)), stopped(true), joined(true) {}
 
   bool start() {
     MutexLocker mutexLocker(mutex);
@@ -72,12 +77,12 @@ struct ThreadImpl {
     char tname[MAX_THREAD_NAMELEN];
     snprintf(tname, sizeof(tname), "%s", name.utf8Ptr());
 
-#ifdef STAR_SYSTEM_FREEBSD
-    pthread_set_name_np(pthread, tname);
-#elif not defined STAR_SYSTEM_MACOS
-    pthread_setname_np(pthread, tname);
-#endif
-    return true;
+    // #ifdef STAR_SYSTEM_FREEBSD
+    //     pthread_set_name_np(pthread, tname);
+    // #elif not defined STAR_SYSTEM_MACOS
+    //     pthread_setname_np(pthread, tname);
+    // #endif
+    //     return true;
   }
 
   bool join() {
@@ -101,7 +106,7 @@ struct ThreadImpl {
 
 struct ThreadFunctionImpl : ThreadImpl {
   ThreadFunctionImpl(std::function<void()> function, String name)
-    : ThreadImpl(wrapFunction(std::move(function)), std::move(name)) {}
+      : ThreadImpl(wrapFunction(std::move(function)), std::move(name)) {}
 
   std::function<void()> wrapFunction(std::function<void()> function) {
     return [function = std::move(function), this]() {
@@ -270,8 +275,9 @@ unsigned Thread::numberOfProcessors() {
 
 Thread::Thread(String const& name) {
   m_impl.reset(new ThreadImpl([this]() {
-      run();
-    }, name));
+    run();
+  },
+                              name));
 }
 
 Thread::Thread(Thread&&) = default;
@@ -344,7 +350,7 @@ String ThreadFunction<void>::name() {
 }
 
 Mutex::Mutex()
-  : m_impl(new MutexImpl()) {}
+    : m_impl(new MutexImpl()) {}
 
 Mutex::Mutex(Mutex&&) = default;
 
@@ -365,7 +371,7 @@ void Mutex::unlock() {
 }
 
 ConditionVariable::ConditionVariable()
-  : m_impl(new ConditionVariableImpl()) {}
+    : m_impl(new ConditionVariableImpl()) {}
 
 ConditionVariable::ConditionVariable(ConditionVariable&&) = default;
 
@@ -389,7 +395,7 @@ void ConditionVariable::broadcast() {
 }
 
 RecursiveMutex::RecursiveMutex()
-  : m_impl(new RecursiveMutexImpl()) {}
+    : m_impl(new RecursiveMutexImpl()) {}
 
 RecursiveMutex::RecursiveMutex(RecursiveMutex&&) = default;
 
@@ -409,4 +415,4 @@ void RecursiveMutex::unlock() {
   m_impl->unlock();
 }
 
-}
+}// namespace Star
