@@ -1,5 +1,7 @@
 .idea
-vita-parse-core/venv/
+vita-parse-core/
+vita-parse-core
+/vita-parse-core
 /lib
 /build
 /dist

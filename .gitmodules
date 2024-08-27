@@ -1,0 +1,3 @@
+[submodule "vita-parse-core"]
+	path = vita-parse-core
+	url = git@github.com:xyzz/vita-parse-core.git
