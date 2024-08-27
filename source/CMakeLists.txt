@@ -1,12 +1,13 @@
-PROJECT (starbound)
-
 CMAKE_MINIMUM_REQUIRED (VERSION 3.0)
+
+PROJECT (starbound)
 
 include(FindPkgConfig)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -O3 -g -ffast-math -mfloat-abi=softfp")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=gnu++20 -Wno-write-strings -Wno-psabi")
+set(STAR_ENABLE_DISCORD_INTEGRATION OFF)
 add_compile_definitions(LUA_32BITS=1)
 add_compile_definitions(LUA_C89_NUMBERS=1)
 
