@@ -1,6 +1,15 @@
 PROJECT (starbound)
 
 CMAKE_MINIMUM_REQUIRED (VERSION 3.0)
+
+include(FindPkgConfig)
+include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -O3 -g -ffast-math -mfloat-abi=softfp")
+set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=gnu++20 -Wno-write-strings -Wno-psabi")
+add_compile_definitions(LUA_32BITS=1)
+add_compile_definitions(LUA_C89_NUMBERS=1)
+
 SET (CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake)
 
 SET (CMAKE_CONFIGURATION_TYPES Debug RelWithAsserts RelWithDebInfo Release)
@@ -392,62 +401,98 @@ ELSEIF (STAR_SYSTEM_FREEBSD)
 
 ENDIF ()
 
-# Find all required external libraries, based on build settings...
 
-IF (STAR_USE_JEMALLOC)
-  # Assumes jemalloc was configured with a "je_" function prefix
-  FIND_PACKAGE (JeMalloc REQUIRED)
 
-  INCLUDE_DIRECTORIES (SYSTEM ${JEMALLOC_INCLUDE_DIR})
-  SET (STAR_EXT_LIBS ${JEMALLOC_LIBRARY})
-ENDIF ()
+pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
+pkg_check_modules(PNG REQUIRED IMPORTED_TARGET libpng)
+pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
+pkg_check_modules(OPUS REQUIRED IMPORTED_TARGET opus)
+pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd)
+pkg_check_modules(OGG REQUIRED IMPORTED_TARGET ogg)
+pkg_check_modules(OGGVORBIS REQUIRED IMPORTED_TARGET vorbis)
+pkg_check_modules(VORBISFILE REQUIRED IMPORTED_TARGET vorbisfile)
+pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+pkg_check_modules(SDL2GFX REQUIRED IMPORTED_TARGET SDL2_gfx)
 
-FIND_PACKAGE (ZLIB REQUIRED)
-FIND_PACKAGE (PNG REQUIRED)
-FIND_PACKAGE (Freetype REQUIRED)
-FIND_PACKAGE (OggVorbis REQUIRED)
+include_directories(SYSTEM
+        ${FREETYPE_INCLUDE_DIRS}
+        ${ZSTD_INCLUDE_DIRS}
+        ${OPUS_INCLUDE_DIRS}
+        ${OGGVORBIS_INCLUDE_DIR}
+        ${VORBISFILE_INCLUDE_DIRS}
+        ${STAR_INC_DIRS}
+        ${SDL_INCLUDE_DIRS}
+        ${SDL2_INCLUDE_DIRS}
+        ${SDL2GFX_INCLUDE_DIRS}
+)
 
-INCLUDE_DIRECTORIES (SYSTEM
-    ${ZLIB_INCLUDE_DIR}
-    ${PNG_INCLUDE_DIR}
-    ${FREETYPE_INCLUDE_DIRS}
-    ${OGGVORBIS_INCLUDE_DIR}
-  )
+set(STAR_EXT_LIBS ${STAR_EXT_LIBS}
+        ${ZLIB_LIBRARIES}
+        ${PNG_LIBRARIES}
+        ${FREETYPE_LIBRARIES}
+        ${ZSTD_LIBRARIES}
+        ${OPUS_LIBRARIES}
+        ${OGG_LIBRARIES}
+        ${OGGVORBIS_LIBRARIES}
+        ${VORBISFILE_LIBRARIES}
+)
 
-SET (STAR_EXT_LIBS ${STAR_EXT_LIBS}
-    ${VORBISFILE_LIBRARY}
-    ${VORBIS_LIBRARY}
-    ${OGG_LIBRARY}
-    ${FREETYPE_LIBRARY}
-    ${PNG_LIBRARY}
-    ${ZLIB_LIBRARY}
-  )
+set(STAR_EXT_GUI_LIBS
+        ${SDL2_LIBRARIES}
+        ${SDL2GFX_LIBRARIES}
+        vitaGL
+        vitashark
+        SceShaccCgExt
+        taihen_stub
+        SceShaccCg_stub
+        z
+        m
+        ScePgf_stub
+        mathneon
+        kubridge_stub
+        SceHid_stub
+        SceTouch_stub
+        SceMotion_stub
+        SceAppMgr_stub
+        SceAppUtil_stub
+        SceAudio_stub
+        SceAudioIn_stub
+        SceCommonDialog_stub
+        SceDisplay_stub
+        SceKernelDmacMgr_stub
+        SceFios2_stub
+        SceCtrl_stub
+        SceGxm_stub
+        ScePower_stub
+        SceTouch_stub
+        SceVshBridge_stub
+)
 
-IF (STAR_BUILD_GUI)
-  FIND_PACKAGE (SDL2 REQUIRED)
-  INCLUDE_DIRECTORIES (SYSTEM ${SDL2_INCLUDE_DIR})
-  SET (STAR_EXT_GUI_LIBS ${SDL2_LIBRARY})
-
-  FIND_PACKAGE (OpenGL REQUIRED)
-  FIND_PACKAGE (GLEW REQUIRED)
-
-  INCLUDE_DIRECTORIES (SYSTEM ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR})
-  SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${OPENGL_LIBRARY} ${GLEW_LIBRARY})
-
-  IF (STAR_ENABLE_STEAM_INTEGRATION)
-    FIND_PACKAGE (SteamApi REQUIRED)
-
-    INCLUDE_DIRECTORIES (SYSTEM ${STEAM_API_INCLUDE_DIR})
-    SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${STEAM_API_LIBRARY})
-  ENDIF ()
-
-  IF (STAR_ENABLE_DISCORD_INTEGRATION)
-    FIND_PACKAGE (DiscordApi REQUIRED)
-
-    INCLUDE_DIRECTORIES (SYSTEM ${DISCORD_API_INCLUDE_DIR})
-    SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${DISCORD_API_LIBRARY})
-  ENDIF ()
-ENDIF ()
+#IF (STAR_BUILD_GUI)
+#  FIND_PACKAGE (SDL2 REQUIRED)
+#  INCLUDE_DIRECTORIES (SYSTEM ${SDL2_INCLUDE_DIR})
+#  SET (STAR_EXT_GUI_LIBS ${SDL2_LIBRARY})
+#
+#  FIND_PACKAGE (OpenGL REQUIRED)
+#  FIND_PACKAGE (GLEW REQUIRED)
+#
+#  INCLUDE_DIRECTORIES (SYSTEM ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR})
+#  SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${OPENGL_LIBRARY} ${GLEW_LIBRARY})
+#
+#  IF (STAR_ENABLE_STEAM_INTEGRATION)
+#    FIND_PACKAGE (SteamApi REQUIRED)
+#
+#    INCLUDE_DIRECTORIES (SYSTEM ${STEAM_API_INCLUDE_DIR})
+#    SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${STEAM_API_LIBRARY})
+#  ENDIF ()
+#
+#  IF (STAR_ENABLE_DISCORD_INTEGRATION)
+#    FIND_PACKAGE (DiscordApi REQUIRED)
+#
+#    INCLUDE_DIRECTORIES (SYSTEM ${DISCORD_API_INCLUDE_DIR})
+#    SET (STAR_EXT_GUI_LIBS ${STAR_EXT_GUI_LIBS} ${DISCORD_API_LIBRARY})
+#  ENDIF ()
+#ENDIF ()
 
 # Set basic build flags, include all the relevant source directories, based on
 # build settings...
