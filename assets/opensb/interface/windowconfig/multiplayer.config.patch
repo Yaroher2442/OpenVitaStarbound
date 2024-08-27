@@ -1,8 +1,0 @@
-{
-  "panefeature" : {
-    "type" : "panefeature",
-    "anchor" : "center",
-    "positionLocked" : true
-  },
-  "password" : { "hidden" : true }
-}

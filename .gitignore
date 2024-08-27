@@ -1,4 +1,5 @@
 .idea
+vita-parse-core/venv
 extras
 /build/
 /build_linux/
