@@ -2,7 +2,7 @@
 #include "StarCasting.hpp"
 #include "StarLogging.hpp"
 
-#include <execinfo.h>
+// #include <execinfo.h>
 #include <cstdlib>
 
 namespace Star {
@@ -13,23 +13,23 @@ typedef pair<Array<void*, StackLimit>, size_t> StackCapture;
 
 inline StackCapture captureStack() {
   StackCapture stackCapture;
-  stackCapture.second = backtrace(stackCapture.first.ptr(), StackLimit);
+  // stackCapture.second = backtrace(stackCapture.first.ptr(), StackLimit);
   return stackCapture;
 }
 
 OutputProxy outputStack(StackCapture stack) {
   return OutputProxy([stack = move(stack)](std::ostream & os) {
-      char** symbols = backtrace_symbols(stack.first.ptr(), stack.second);
-      for (size_t i = 0; i < stack.second; ++i) {
-        os << symbols[i];
-        if (i + 1 < stack.second)
-          os << std::endl;
-      }
-
-      if (stack.second == StackLimit)
-        os << std::endl << "[Stack Output Limit Reached]";
-
-      ::free(symbols);
+    // char** symbols = backtrace_symbols(stack.first.ptr(), stack.second);
+    // for (size_t i = 0; i < stack.second; ++i) {
+    //   os << symbols[i];
+    //   if (i + 1 < stack.second)
+    //     os << std::endl;
+    // }
+    //
+    // if (stack.second == StackLimit)
+    //   os << std::endl << "[Stack Output Limit Reached]";
+    //
+    // ::free(symbols);
     });
 }
 

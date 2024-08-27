@@ -239,7 +239,7 @@ String LuaBindings::UtilityCallbacks::print(LuaValue const& value) {
 LuaValue LuaBindings::UtilityCallbacks::interpolateSinEase(LuaEngine& engine, double offset, LuaValue const& value1, LuaValue const& value2) {
   if (auto floatValue1 = engine.luaMaybeTo<double>(value1)) {
     auto floatValue2 = engine.luaMaybeTo<double>(value2);
-    return sinEase(offset, *floatValue1, *floatValue2);
+    return static_cast<LuaFloat>(sinEase(offset, *floatValue1, *floatValue2)); // tim shit
   } else {
     return engine.luaFrom<Vec2F>(sinEase(offset, engine.luaTo<Vec2F>(value1), engine.luaTo<Vec2F>(value2)));
   }

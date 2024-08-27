@@ -1,390 +1,330 @@
-#include "StarThread.hpp"
-#include "StarTime.hpp"
-#include "StarLogging.hpp"
+#include "StarEncode.hpp"
+#include "StarFile.hpp"
+#include "StarRandom.hpp"
 
-#include <limits.h>
-#include <libgen.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <dlfcn.h>
 #include <dirent.h>
-#include <pthread.h>
-#ifdef STAR_SYSTEM_FREEBSD
-#include <pthread_np.h>
-#endif
-#include <sys/time.h>
-#include <errno.h>
+#include <filesystem>
+#include <libgen.h>
+#include <psp2common/kernel/iofilemgr.h>
+#include <sys/_default_fcntl.h>
+#include <sys/stat.h>
+#include <sys/syslimits.h>
+#include <sys/types.h>
+#include <sys/unistd.h>
 
-#ifdef MAXCOMLEN
-#define MAX_THREAD_NAMELEN MAXCOMLEN
-#else
-#define MAX_THREAD_NAMELEN 16
+#ifndef DT_DIR
+#define DT_UNKNOWN 0
+#define DT_FIFO 1
+#define DT_CHR 2
+#define DT_DIR 4
+#define DT_BLK 6
+#define DT_REG 8
+#define DT_LNK 10
+#define DT_SOCK 12
+#define DT_WHT 14
+#endif
+
+#define P_tmpdir "/tmp"
+extern "C" {
+int ftruncate(int fd, int cmd, ...);
+char* realpath(const char* __restrict path, char* __restrict resolved_path);
+int mkstemp(char*);
+}
+
+#ifdef STAR_SYSTEM_MACOSX
+#include <mach-o/dyld.h>
+#elif defined STAR_SYSTEM_FREEBSD
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 namespace Star {
 
-struct ThreadImpl {
-  static void* runThread(void* data) {
-    ThreadImpl* ptr = static_cast<ThreadImpl*>(data);
-    try {
-#ifdef STAR_SYSTEM_MACOS
-      // ensure the name is under the max allowed
-      char tname[MAX_THREAD_NAMELEN];
-      snprintf(tname, sizeof(tname), "%s", ptr->name.utf8Ptr());
+namespace {
+int fdFromHandle(void* ptr) {
+  return (int)(intptr_t)ptr;
+}
 
-      pthread_setname_np(tname);
-#endif
-      ptr->function();
-    } catch (std::exception const& e) {
-      if (ptr->name.empty())
-        Logger::error("Exception caught in Thread: %s", outputException(e, true));
-      else
-        Logger::error("Exception caught in Thread %s: %s", ptr->name, outputException(e, true));
-    } catch (...) {
-      if (ptr->name.empty())
-        Logger::error("Unknown exception caught in Thread");
-      else
-        Logger::error("Unknown exception caught in Thread %s", ptr->name);
-    }
-    ptr->stopped = true;
-    return nullptr;
-  }
+void* handleFromFd(int handle) {
+  return (void*)(intptr_t)handle;
+}
+}// namespace
 
-  ThreadImpl(std::function<void()> function, String name)
-    : function(std::move(function)), name(std::move(name)), stopped(true), joined(true) {}
+String File::convertDirSeparators(String const& path) {
+  return path.replace("\\", "/");
+}
 
-  bool start() {
-    MutexLocker mutexLocker(mutex);
-    if (!joined)
-      return false;
+String File::currentDirectory() {
+  char buffer[PATH_MAX];
+  if (::getcwd(buffer, PATH_MAX) == NULL)
+    throw IOException("getcwd failed");
 
-    stopped = false;
-    joined = false;
-    int ret = pthread_create(&pthread, NULL, &runThread, (void*)this);
-    if (ret != 0) {
-      stopped = true;
-      joined = true;
-      throw StarException(strf("Failed to create thread, error %s", ret));
-    }
+  return String(buffer);
+}
 
-    // ensure the name is under the max allowed
-    char tname[MAX_THREAD_NAMELEN];
-    snprintf(tname, sizeof(tname), "%s", name.utf8Ptr());
+void File::changeDirectory(const String& dirName) {
+  if (::chdir(dirName.utf8Ptr()) != 0)
+    throw IOException(strf("could not change directory to {}", dirName));
+}
 
-#ifdef STAR_SYSTEM_FREEBSD
-    pthread_set_name_np(pthread, tname);
-#elif not defined STAR_SYSTEM_MACOS
-    pthread_setname_np(pthread, tname);
-#endif
-    return true;
-  }
+void File::makeDirectory(String const& dirName) {
+  if (::mkdir(dirName.utf8Ptr(), 0777) != 0)
+    throw IOException(strf("could not create directory '{}', {}", dirName, strerror(errno)));
+}
 
-  bool join() {
-    MutexLocker mutexLocker(mutex);
-    if (joined)
-      return false;
-    int ret = pthread_join(pthread, NULL);
-    if (ret != 0)
-      throw StarException(strf("Failed to join thread, error %s", ret));
-    joined = true;
-    return true;
-  }
+List<pair<String, bool>> File::dirList(const String& dirName, bool skipDots) {
+  List<std::pair<String, bool>> fileList;
+  DIR* directory = ::opendir(dirName.utf8Ptr());
+  if (directory == NULL)
+    throw IOException::format("dirList failed on dir: '{}'", dirName);
 
-  std::function<void()> function;
-  String name;
-  pthread_t pthread;
-  atomic<bool> stopped;
-  bool joined;
-  Mutex mutex;
-};
-
-struct ThreadFunctionImpl : ThreadImpl {
-  ThreadFunctionImpl(std::function<void()> function, String name)
-    : ThreadImpl(wrapFunction(move(function)), move(name)) {}
-
-  std::function<void()> wrapFunction(std::function<void()> function) {
-    return [function = move(function), this]() {
-      try {
-        function();
-      } catch (...) {
-        exception = std::current_exception();
+  for (dirent* entry = ::readdir(directory); entry != NULL; entry = ::readdir(directory)) {
+    String entryString = entry->d_name;
+    if (!skipDots || (entryString != "." && entryString != "..")) {
+      bool isDirectory = false;
+      if (SCE_SO_ISDIR(entry->d_stat.st_attr)) {
+        isDirectory = true;
       }
-    };
+      // if (entry->d_type == DT_DIR) {
+      //   isDirectory = true;
+      // } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
+      //   isDirectory = File::isDirectory(File::relativeTo(dirName, entryString));
+      // }
+      fileList.append({entryString, isDirectory});
+    }
   }
+  ::closedir(directory);
 
-  std::exception_ptr exception;
-};
-
-struct MutexImpl {
-  MutexImpl() {
-    pthread_mutexattr_t mutexattr;
-    pthread_mutexattr_init(&mutexattr);
-
-    pthread_mutex_init(&mutex, &mutexattr);
-
-    pthread_mutexattr_destroy(&mutexattr);
-  }
-
-  ~MutexImpl() {
-    pthread_mutex_destroy(&mutex);
-  }
-
-  void lock() {
-    pthread_mutex_lock(&mutex);
-  }
-
-  void unlock() {
-    pthread_mutex_unlock(&mutex);
-  }
-
-  bool tryLock() {
-    if (pthread_mutex_trylock(&mutex) == 0)
-      return true;
-    else
-      return false;
-  }
-
-  pthread_mutex_t mutex;
-};
-
-struct ConditionVariableImpl {
-  ConditionVariableImpl() {
-    pthread_cond_init(&condition, NULL);
-  }
-
-  ~ConditionVariableImpl() {
-    pthread_cond_destroy(&condition);
-  }
-
-  void wait(Mutex& mutex) {
-    pthread_cond_wait(&condition, &mutex.m_impl->mutex);
-  }
-
-  void wait(Mutex& mutex, unsigned millis) {
-    int64_t time = Time::millisecondsSinceEpoch() + millis;
-
-    timespec ts;
-    ts.tv_sec = time / 1000;
-    ts.tv_nsec = (time % 1000) * 1000000;
-
-    pthread_cond_timedwait(&condition, &mutex.m_impl->mutex, &ts);
-  }
-
-  void signal() {
-    pthread_cond_signal(&condition);
-  }
-
-  void broadcast() {
-    pthread_cond_broadcast(&condition);
-  }
-
-  pthread_cond_t condition;
-};
-
-struct RecursiveMutexImpl {
-  RecursiveMutexImpl() {
-    pthread_mutexattr_t mutexattr;
-    pthread_mutexattr_init(&mutexattr);
-
-    pthread_mutexattr_settype(&mutexattr, PTHREAD_MUTEX_RECURSIVE);
-
-    pthread_mutex_init(&mutex, &mutexattr);
-
-    pthread_mutexattr_destroy(&mutexattr);
-  }
-
-  ~RecursiveMutexImpl() {
-    pthread_mutex_destroy(&mutex);
-  }
-
-  void lock() {
-    pthread_mutex_lock(&mutex);
-  }
-
-  void unlock() {
-    pthread_mutex_unlock(&mutex);
-  }
-
-  bool tryLock() {
-    if (pthread_mutex_trylock(&mutex) == 0)
-      return true;
-    else
-      return false;
-  }
-
-  pthread_mutex_t mutex;
-};
-
-void Thread::sleepPrecise(unsigned msecs) {
-  int64_t now = Time::monotonicMilliseconds();
-  int64_t deadline = now + msecs;
-
-  while (deadline - now > 10) {
-    usleep((deadline - now - 10) * 1000);
-    now = Time::monotonicMilliseconds();
-  }
-
-  while (deadline > now) {
-    usleep((deadline - now) * 500);
-    now = Time::monotonicMilliseconds();
-  }
+  return fileList;
 }
 
-void Thread::sleep(unsigned msecs) {
-  usleep(msecs * 1000);
+String File::baseName(const String& fileName) {
+  String ret;
+
+  std::string file = fileName.utf8();
+  char* fn = new char[file.size() + 1];
+  std::copy(file.begin(), file.end(), fn);
+  fn[file.size()] = 0;
+  ret = String(::basename(fn));
+  delete[] fn;
+
+  return ret;
 }
 
-void Thread::yield() {
-  sched_yield();
+String File::dirName(const String& fileName) {
+  String ret;
+
+  std::string file = fileName.utf8();
+  char* fn = new char[file.size() + 1];
+  std::copy(file.begin(), file.end(), fn);
+  fn[file.size()] = 0;
+  ret = String(::dirname(fn));
+  delete[] fn;
+
+  return ret;
 }
 
-unsigned Thread::numberOfProcessors() {
-  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-  if (nprocs < 1)
-    throw StarException(strf("Could not determine number of CPUs online: %s\n", strerror(errno)));
-  return nprocs;
+String File::relativeTo(String const& relativeTo, String const& path) {
+  if (path.beginsWith("/"))
+    return path;
+  return relativeTo.trimEnd("/") + '/' + path;
 }
 
-Thread::Thread(String const& name) {
-  m_impl.reset(new ThreadImpl([this]() {
-      run();
-    }, name));
+String File::fullPath(const String& fileName) {
+  char buffer[PATH_MAX];
+  if (::realpath(fileName.utf8Ptr(), buffer) == NULL)
+    throw IOException::format("realpath failed on file: '{}' problem path was: '{}'", fileName, buffer);
+
+  return String(buffer);
 }
 
-Thread::Thread(Thread&&) = default;
-
-Thread::~Thread() {}
-
-Thread& Thread::operator=(Thread&&) = default;
-
-bool Thread::start() {
-  return m_impl->start();
+String File::temporaryFileName() {
+  return relativeTo(P_tmpdir, strf("starbound.tmpfile.{}", hexEncode(Random::randBytes(16))));
 }
 
-bool Thread::join() {
-  return m_impl->join();
+FilePtr File::temporaryFile() {
+  return open(temporaryFileName(), IOMode::ReadWrite);
 }
 
-String Thread::name() {
-  return m_impl->name;
+FilePtr File::ephemeralFile() {
+  auto file = make_shared<File>();
+  ByteArray path = ByteArray::fromCStringWithNull(relativeTo(P_tmpdir, "starbound.tmpfile.XXXXXXXX").utf8Ptr());
+  auto res = mkstemp(path.ptr());
+  if (res < 0)
+    throw IOException::format("tmpfile error: {}", strerror(errno));
+  if (::unlink(path.ptr()) < 0)
+    throw IOException::format("Could not remove mkstemp file when creating ephemeralFile: {}", strerror(errno));
+  file->m_file = handleFromFd(res);
+  file->setMode(IOMode::ReadWrite);
+  return file;
 }
 
-bool Thread::isJoined() const {
-  return m_impl->joined;
+String File::temporaryDirectory() {
+  String dirname = relativeTo(P_tmpdir, strf("starbound.tmpdir.{}", hexEncode(Random::randBytes(16))));
+  makeDirectory(dirname);
+  return dirname;
 }
 
-bool Thread::isRunning() const {
-  return !m_impl->stopped;
+bool File::exists(String const& path) {
+  struct stat st_buf;
+  int status = stat(path.utf8Ptr(), &st_buf);
+  return status == 0;
 }
 
-ThreadFunction<void>::ThreadFunction() {}
+bool File::isFile(String const& path) {
+  struct stat st_buf;
+  int status = stat(path.utf8Ptr(), &st_buf);
+  if (status != 0)
+    return false;
 
-ThreadFunction<void>::ThreadFunction(ThreadFunction&&) = default;
-
-ThreadFunction<void>::ThreadFunction(function<void()> function, String const& name) {
-  m_impl.reset(new ThreadFunctionImpl(move(function), name));
-  m_impl->start();
+  return S_ISREG(st_buf.st_mode);
 }
 
-ThreadFunction<void>::~ThreadFunction() {
-  finish();
+bool File::isDirectory(String const& path) {
+  struct stat st_buf;
+  int status = stat(path.utf8Ptr(), &st_buf);
+  if (status != 0)
+    return false;
+
+  return S_ISDIR(st_buf.st_mode);
 }
 
-ThreadFunction<void>& ThreadFunction<void>::operator=(ThreadFunction&&) = default;
+void File::remove(String const& filename) {
+  if (::remove(filename.utf8Ptr()) < 0)
+    throw IOException::format("remove error: {}", strerror(errno));
+}
 
-void ThreadFunction<void>::finish() {
-  if (m_impl) {
-    m_impl->join();
+void File::rename(String const& source, String const& target) {
+  if (::rename(source.utf8Ptr(), target.utf8Ptr()) < 0)
+    throw IOException::format("rename error: {}", strerror(errno));
+}
 
-    if (m_impl->exception)
-      std::rethrow_exception(take(m_impl->exception));
+void File::overwriteFileWithRename(char const* data, size_t len, String const& filename, String const& newSuffix) {
+  String newFile = filename + newSuffix;
+  writeFile(data, len, newFile);
+  File::rename(newFile, filename);
+}
+
+void* File::fopen(char const* filename, IOMode mode) {
+  int oflag = 0;
+
+  if (mode & IOMode::Read && mode & IOMode::Write)
+    oflag |= O_RDWR | O_CREAT;
+  else if (mode & IOMode::Read)
+    oflag |= O_RDONLY;
+  else if (mode & IOMode::Write)
+    oflag |= O_WRONLY | O_CREAT;
+
+  if (mode & IOMode::Truncate)
+    oflag |= O_TRUNC;
+
+  int fd = ::open(filename, oflag, 0666);
+  if (fd < 0)
+    throw IOException::format("Error opening file '{}', error: {}", filename, strerror(errno));
+
+  if (mode & IOMode::Append) {
+    if (lseek(fd, 0, SEEK_END) < 0)
+      throw IOException::format("Error opening file '{}', cannot seek: {}", filename, strerror(errno));
   }
+
+  return handleFromFd(fd);
 }
 
-bool ThreadFunction<void>::isFinished() const {
-  return !m_impl || m_impl->joined;
-}
-
-bool ThreadFunction<void>::isRunning() const {
-  return m_impl && !m_impl->stopped;
-}
-
-ThreadFunction<void>::operator bool() const {
-  return !isFinished();
-}
-
-String ThreadFunction<void>::name() {
-  if (m_impl)
-    return m_impl->name;
+void File::fseek(void* f, StreamOffset offset, IOSeek seekMode) {
+  auto fd = fdFromHandle(f);
+  int retCode;
+  if (seekMode == IOSeek::Relative)
+    retCode = lseek(fd, offset, SEEK_CUR);
+  else if (seekMode == IOSeek::Absolute)
+    retCode = lseek(fd, offset, SEEK_SET);
   else
-    return "";
+    retCode = lseek(fd, offset, SEEK_END);
+
+  if (retCode < 0)
+    throw IOException::format("Seek error: {}", strerror(errno));
 }
 
-Mutex::Mutex()
-  : m_impl(new MutexImpl()) {}
-
-Mutex::Mutex(Mutex&&) = default;
-
-Mutex::~Mutex() {}
-
-Mutex& Mutex::operator=(Mutex&&) = default;
-
-void Mutex::lock() {
-  m_impl->lock();
+StreamOffset File::ftell(void* f) {
+  return lseek(fdFromHandle(f), 0, SEEK_CUR);
 }
 
-bool Mutex::tryLock() {
-  return m_impl->tryLock();
+size_t File::fread(void* file, char* data, size_t len) {
+  if (len == 0)
+    return 0;
+
+  auto fd = fdFromHandle(file);
+  auto ret = ::read(fd, data, len);
+  if (ret < 0) {
+    if (errno == EAGAIN || errno == EINTR)
+      return 0;
+    throw IOException::format("Read error: {}", strerror(errno));
+  } else {
+    return ret;
+  }
 }
 
-void Mutex::unlock() {
-  m_impl->unlock();
+size_t File::fwrite(void* file, char const* data, size_t len) {
+  if (len == 0)
+    return 0;
+
+  auto fd = fdFromHandle(file);
+  auto ret = ::write(fd, data, len);
+  if (ret < 0) {
+    if (errno == EAGAIN || errno == EINTR)
+      return 0;
+    throw IOException::format("Write error: {}", strerror(errno));
+  } else {
+    return ret;
+  }
 }
 
-ConditionVariable::ConditionVariable()
-  : m_impl(new ConditionVariableImpl()) {}
-
-ConditionVariable::ConditionVariable(ConditionVariable&&) = default;
-
-ConditionVariable::~ConditionVariable() {}
-
-ConditionVariable& ConditionVariable::operator=(ConditionVariable&&) = default;
-
-void ConditionVariable::wait(Mutex& mutex, Maybe<unsigned> millis) {
-  if (millis)
-    m_impl->wait(mutex, *millis);
-  else
-    m_impl->wait(mutex);
+void File::fsync(void* file) {
+  auto fd = fdFromHandle(file);
+#ifdef STAR_SYSTEM_LINUX
+  ::fdatasync(fd);
+#else
+  ::fsync(fd);
+#endif
 }
 
-void ConditionVariable::signal() {
-  m_impl->signal();
+void File::fclose(void* file) {
+  if (::close(fdFromHandle(file)) < 0)
+    throw IOException::format("Close error: {}", strerror(errno));
 }
 
-void ConditionVariable::broadcast() {
-  m_impl->broadcast();
+StreamOffset File::fsize(void* file) {
+  StreamOffset pos = ftell(file);
+  StreamOffset size = lseek(fdFromHandle(file), 0, SEEK_END);
+  lseek(fdFromHandle(file), pos, SEEK_SET);
+  return size;
 }
 
-RecursiveMutex::RecursiveMutex()
-  : m_impl(new RecursiveMutexImpl()) {}
-
-RecursiveMutex::RecursiveMutex(RecursiveMutex&&) = default;
-
-RecursiveMutex::~RecursiveMutex() {}
-
-RecursiveMutex& RecursiveMutex::operator=(RecursiveMutex&&) = default;
-
-void RecursiveMutex::lock() {
-  m_impl->lock();
+size_t File::pread(void* file, char* data, size_t len, StreamOffset position) {
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::read(fd, data, len);
+  // return ::pread(fdFromHandle(file), data, len, position);
 }
 
-bool RecursiveMutex::tryLock() {
-  return m_impl->tryLock();
+size_t File::pwrite(void* file, char const* data, size_t len, StreamOffset position) {
+  // return ::pwrite(fdFromHandle(file), data, len, position);
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::write(fd, data, len);
 }
 
-void RecursiveMutex::unlock() {
-  m_impl->unlock();
+void File::resize(void* f, StreamOffset size) {
+  if (::ftruncate(fdFromHandle(f), size) < 0)
+    throw IOException::format("resize error: {}", strerror(errno));
+  // if (lseek(fdFromHandle(f), size, SEEK_SET) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
+  //
+  // if (::write(fdFromHandle(f), "", 1) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
 }
 
-}
+}// namespace Star

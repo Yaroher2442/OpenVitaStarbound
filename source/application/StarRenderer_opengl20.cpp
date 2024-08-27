@@ -1,6 +1,6 @@
 #include "StarRenderer_opengl20.hpp"
-#include "StarJsonExtra.hpp"
 #include "StarCasting.hpp"
+#include "StarJsonExtra.hpp"
 #include "StarLogging.hpp"
 
 namespace Star {
@@ -74,17 +74,21 @@ char const* DefaultEffectConfig = R"JSON(
   )JSON";
 
 OpenGl20Renderer::OpenGl20Renderer() {
-  if (glewInit() != GLEW_OK)
-    throw RendererException("Could not initialize GLEW");
 
-  if (!GLEW_VERSION_2_0)
-    throw RendererException("OpenGL 2.0 not available!");
+  GLboolean inited = vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  if (!inited)
+    throw RendererException("Could not initialize VGL");
+  // if (glewInit() != GLEW_OK)
+  //   throw RendererException("Could not initialize GLEW");
+  //
+  // if (!GLEW_VERSION_2_0)
+  //   throw RendererException("OpenGL 2.0 not available!");
 
   Logger::info("OpenGL version: '%s' vendor: '%s' renderer: '%s' shader: '%s'",
-      glGetString(GL_VERSION),
-      glGetString(GL_VENDOR),
-      glGetString(GL_RENDERER),
-      glGetString(GL_SHADING_LANGUAGE_VERSION));
+               glGetString(GL_VERSION),
+               glGetString(GL_VENDOR),
+               glGetString(GL_RENDERER),
+               glGetString(GL_SHADING_LANGUAGE_VERSION));
 
   glClearColor(0.0, 0.0, 0.0, 1.0);
   glEnable(GL_TEXTURE_2D);
@@ -93,8 +97,8 @@ OpenGl20Renderer::OpenGl20Renderer() {
   glDisable(GL_DEPTH_TEST);
 
   m_whiteTexture = createGlTexture(Image::filled({1, 1}, Vec4B(255, 255, 255, 255), PixelFormat::RGBA32),
-      TextureAddressing::Clamp,
-      TextureFiltering::Nearest);
+                                   TextureAddressing::Clamp,
+                                   TextureFiltering::Nearest);
   m_immediateRenderBuffer = createGlRenderBuffer();
 
   setEffectConfig(Json::parse(DefaultEffectConfig));
@@ -249,16 +253,16 @@ void OpenGl20Renderer::setEffectConfig(Json const& effectConfig) {
     if (effectTexture.textureUniform == -1) {
       Logger::warn("OpenGL20 effect parameter '%s' has no associated uniform, skipping", p.first);
     } else {
-        effectTexture.textureUnit = parameterTextureUnit++;
-        glUniform1i(effectTexture.textureUniform, effectTexture.textureUnit);
+      effectTexture.textureUnit = parameterTextureUnit++;
+      glUniform1i(effectTexture.textureUniform, effectTexture.textureUnit);
 
-        effectTexture.textureAddressing = TextureAddressingNames.getLeft(p.second.getString("textureAddressing", "clamp"));
-        effectTexture.textureFiltering = TextureFilteringNames.getLeft(p.second.getString("textureFiltering", "nearest"));
-        if (auto tsu = p.second.optString("textureSizeUniform")) {
-          effectTexture.textureSizeUniform = glGetUniformLocation(m_program, tsu->utf8Ptr());
-          if (effectTexture.textureSizeUniform == -1)
-            Logger::warn("OpenGL20 effect parameter '%s' has textureSizeUniform '%s' with no associated uniform", p.first, *tsu);
-        }
+      effectTexture.textureAddressing = TextureAddressingNames.getLeft(p.second.getString("textureAddressing", "clamp"));
+      effectTexture.textureFiltering = TextureFilteringNames.getLeft(p.second.getString("textureFiltering", "nearest"));
+      if (auto tsu = p.second.optString("textureSizeUniform")) {
+        effectTexture.textureSizeUniform = glGetUniformLocation(m_program, tsu->utf8Ptr());
+        if (effectTexture.textureSizeUniform == -1)
+          Logger::warn("OpenGL20 effect parameter '%s' has textureSizeUniform '%s' with no associated uniform", p.first, *tsu);
+      }
 
       m_effectTextures[p.first] = effectTexture;
     }
@@ -355,7 +359,7 @@ TextureGroupPtr OpenGl20Renderer::createTextureGroup(TextureGroupSize textureSiz
     atlasNumCells = 256;
   else if (textureSize == TextureGroupSize::Medium)
     atlasNumCells = 128;
-  else // TextureGroupSize::Small
+  else// TextureGroupSize::Small
     atlasNumCells = 64;
 
   Logger::info("detected supported OpenGL texture size %s, using atlasNumCells %s", maxTextureSize, atlasNumCells);
@@ -406,22 +410,22 @@ void OpenGl20Renderer::finishFrame() {
   m_immediateRenderBuffer->set({});
 
   filter(m_liveTextureGroups, [](auto const& p) {
-        unsigned const CompressionsPerFrame = 1;
+    unsigned const CompressionsPerFrame = 1;
 
-        if (!p.unique() || p->textureAtlasSet.totalTextures() > 0) {
-          p->textureAtlasSet.compressionPass(CompressionsPerFrame);
-          return true;
-        }
+    if (!p.unique() || p->textureAtlasSet.totalTextures() > 0) {
+      p->textureAtlasSet.compressionPass(CompressionsPerFrame);
+      return true;
+    }
 
-        return false;
-      });
+    return false;
+  });
 
   if (DebugEnabled)
     logGlErrorSummary("OpenGL errors this frame");
 }
 
 OpenGl20Renderer::GlTextureAtlasSet::GlTextureAtlasSet(unsigned atlasNumCells)
-  : TextureAtlasSet(16, atlasNumCells) {}
+    : TextureAtlasSet(16, atlasNumCells) {}
 
 GLuint OpenGl20Renderer::GlTextureAtlasSet::createAtlasTexture(Vec2U const& size, PixelFormat pixelFormat) {
   GLuint glTextureId;
@@ -451,7 +455,7 @@ void OpenGl20Renderer::GlTextureAtlasSet::destroyAtlasTexture(GLuint const& glTe
 }
 
 void OpenGl20Renderer::GlTextureAtlasSet::copyAtlasPixels(
-    GLuint const& glTexture, Vec2U const& bottomLeft, Image const& image) {
+  GLuint const& glTexture, Vec2U const& bottomLeft, Image const& image) {
   glBindTexture(GL_TEXTURE_2D, glTexture);
 
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -469,7 +473,7 @@ void OpenGl20Renderer::GlTextureAtlasSet::copyAtlasPixels(
 }
 
 OpenGl20Renderer::GlTextureGroup::GlTextureGroup(unsigned atlasNumCells)
-  : textureAtlasSet(atlasNumCells) {}
+    : textureAtlasSet(atlasNumCells) {}
 
 OpenGl20Renderer::GlTextureGroup::~GlTextureGroup() {
   textureAtlasSet.reset();
@@ -642,13 +646,12 @@ void OpenGl20Renderer::GlRenderBuffer::set(List<RenderPrimitive> primitives) {
   };
 
   auto appendBufferVertex = [&](RenderVertex v, float textureIndex, Vec2F textureCoordinateOffset) {
-    GlRenderVertex glv {
+    GlRenderVertex glv{
       v.screenCoordinate,
       v.textureCoordinate + textureCoordinateOffset,
       textureIndex,
       v.color,
-      v.param1
-    };
+      v.param1};
     accumulationBuffer.append((char const*)&glv, sizeof(GlRenderVertex));
     ++currentVertexCount;
   };
@@ -696,7 +699,9 @@ void OpenGl20Renderer::logGlErrorSummary(String prefix) {
   List<GLenum> errors;
   while (GLenum error = glGetError())
     errors.append(error);
-
+  // else if (error == GL_INVALID_FRAMEBUFFER_OPERATION) {
+  //         errorMessage += " GL_INVALID_FRAMEBUFFER_OPERATION";
+  //       }
   if (!errors.empty()) {
     String errorMessage = move(prefix);
     errorMessage.append(": ");
@@ -707,8 +712,6 @@ void OpenGl20Renderer::logGlErrorSummary(String prefix) {
         errorMessage += " GL_INVALID_VALUE";
       } else if (error == GL_INVALID_OPERATION) {
         errorMessage += " GL_INVALID_OPERATION";
-      } else if (error == GL_INVALID_FRAMEBUFFER_OPERATION) {
-        errorMessage += " GL_INVALID_FRAMEBUFFER_OPERATION";
       } else if (error == GL_OUT_OF_MEMORY) {
         errorMessage += " GL_OUT_OF_MEMORY";
       } else if (error == GL_STACK_UNDERFLOW) {
@@ -747,7 +750,7 @@ void OpenGl20Renderer::flushImmediatePrimitives() {
 }
 
 auto OpenGl20Renderer::createGlTexture(Image const& image, TextureAddressing addressing, TextureFiltering filtering)
-    -> RefPtr<GlLoneTexture> {
+  -> RefPtr<GlLoneTexture> {
   auto glLoneTexture = make_ref<GlLoneTexture>();
   glLoneTexture->textureFiltering = filtering;
   glLoneTexture->textureAddressing = addressing;
@@ -820,9 +823,9 @@ void OpenGl20Renderer::renderGlBuffer(GlRenderBuffer const& renderBuffer, Mat3F 
     glVertexAttribPointer(m_texIndexAttribute, 1, GL_FLOAT, GL_FALSE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, textureIndex));
     glVertexAttribPointer(m_colorAttribute, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, color));
     glVertexAttribPointer(m_param1Attribute, 1, GL_FLOAT, GL_FALSE, sizeof(GlRenderVertex), (GLvoid*)offsetof(GlRenderVertex, param1));
-    
+
     glDrawArrays(GL_TRIANGLES, 0, vb.vertexCount);
   }
 }
 
-}
+}// namespace Star

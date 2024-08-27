@@ -1,36 +1,54 @@
-#include "StarFile.hpp"
-#include "StarFormat.hpp"
-#include "StarRandom.hpp"
 #include "StarEncode.hpp"
+#include "StarFile.hpp"
+#include "StarRandom.hpp"
 
-#include <errno.h>
-#include <string.h>
-#include <limits.h>
-#include <stdlib.h>
 #include <dirent.h>
-#include <unistd.h>
+#include <filesystem>
 #include <libgen.h>
-#include <fcntl.h>
+#include <psp2common/kernel/iofilemgr.h>
+#include <sys/_default_fcntl.h>
 #include <sys/stat.h>
+#include <sys/syslimits.h>
+#include <sys/types.h>
+#include <sys/unistd.h>
+
+#ifndef DT_DIR
+#define DT_UNKNOWN 0
+#define DT_FIFO 1
+#define DT_CHR 2
+#define DT_DIR 4
+#define DT_BLK 6
+#define DT_REG 8
+#define DT_LNK 10
+#define DT_SOCK 12
+#define DT_WHT 14
+#endif
+
+#define P_tmpdir "/tmp"
+extern "C" {
+int ftruncate(int fd, int cmd, ...);
+char* realpath(const char* __restrict path, char* __restrict resolved_path);
+int mkstemp(char*);
+}
 
 #ifdef STAR_SYSTEM_MACOSX
 #include <mach-o/dyld.h>
 #elif defined STAR_SYSTEM_FREEBSD
-#include <sys/types.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 namespace Star {
 
 namespace {
-  int fdFromHandle(void* ptr) {
-    return (int)(intptr_t)ptr;
-  }
-
-  void* handleFromFd(int handle) {
-    return (void*)(intptr_t)handle;
-  }
+int fdFromHandle(void* ptr) {
+  return (int)(intptr_t)ptr;
 }
+
+void* handleFromFd(int handle) {
+  return (void*)(intptr_t)handle;
+}
+}// namespace
 
 String File::convertDirSeparators(String const& path) {
   return path.replace("\\", "/");
@@ -46,29 +64,32 @@ String File::currentDirectory() {
 
 void File::changeDirectory(const String& dirName) {
   if (::chdir(dirName.utf8Ptr()) != 0)
-    throw IOException(strf("could not change directory to %s", dirName));
+    throw IOException(strf("could not change directory to {}", dirName));
 }
 
 void File::makeDirectory(String const& dirName) {
   if (::mkdir(dirName.utf8Ptr(), 0777) != 0)
-    throw IOException(strf("could not create directory '%s', %s", dirName, strerror(errno)));
+    throw IOException(strf("could not create directory '{}', {}", dirName, strerror(errno)));
 }
 
 List<pair<String, bool>> File::dirList(const String& dirName, bool skipDots) {
   List<std::pair<String, bool>> fileList;
   DIR* directory = ::opendir(dirName.utf8Ptr());
   if (directory == NULL)
-    throw IOException::format("dirList failed on dir: '%s'", dirName);
+    throw IOException::format("dirList failed on dir: '{}'", dirName);
 
   for (dirent* entry = ::readdir(directory); entry != NULL; entry = ::readdir(directory)) {
     String entryString = entry->d_name;
     if (!skipDots || (entryString != "." && entryString != "..")) {
       bool isDirectory = false;
-      if (entry->d_type == DT_DIR) {
+      if (SCE_SO_ISDIR(entry->d_stat.st_attr)) {
         isDirectory = true;
-      } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
-        isDirectory = File::isDirectory(File::relativeTo(dirName, entryString));
       }
+      // if (entry->d_type == DT_DIR) {
+      //   isDirectory = true;
+      // } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
+      //   isDirectory = File::isDirectory(File::relativeTo(dirName, entryString));
+      // }
       fileList.append({entryString, isDirectory});
     }
   }
@@ -111,15 +132,14 @@ String File::relativeTo(String const& relativeTo, String const& path) {
 
 String File::fullPath(const String& fileName) {
   char buffer[PATH_MAX];
-
   if (::realpath(fileName.utf8Ptr(), buffer) == NULL)
-    throw IOException::format("realpath failed on file: '%s' problem path was: '%s'", fileName, buffer);
+    throw IOException::format("realpath failed on file: '{}' problem path was: '{}'", fileName, buffer);
 
   return String(buffer);
 }
 
 String File::temporaryFileName() {
-  return relativeTo(P_tmpdir, strf("starbound.tmpfile.%s", hexEncode(Random::randBytes(16))));
+  return relativeTo(P_tmpdir, strf("starbound.tmpfile.{}", hexEncode(Random::randBytes(16))));
 }
 
 FilePtr File::temporaryFile() {
@@ -131,16 +151,16 @@ FilePtr File::ephemeralFile() {
   ByteArray path = ByteArray::fromCStringWithNull(relativeTo(P_tmpdir, "starbound.tmpfile.XXXXXXXX").utf8Ptr());
   auto res = mkstemp(path.ptr());
   if (res < 0)
-    throw IOException::format("tmpfile error: %s", strerror(errno));
+    throw IOException::format("tmpfile error: {}", strerror(errno));
   if (::unlink(path.ptr()) < 0)
-    throw IOException::format("Could not remove mkstemp file when creating ephemeralFile: %s", strerror(errno));
+    throw IOException::format("Could not remove mkstemp file when creating ephemeralFile: {}", strerror(errno));
   file->m_file = handleFromFd(res);
   file->setMode(IOMode::ReadWrite);
   return file;
 }
 
 String File::temporaryDirectory() {
-  String dirname = relativeTo(P_tmpdir, strf("starbound.tmpdir.%s", hexEncode(Random::randBytes(16))));
+  String dirname = relativeTo(P_tmpdir, strf("starbound.tmpdir.{}", hexEncode(Random::randBytes(16))));
   makeDirectory(dirname);
   return dirname;
 }
@@ -171,12 +191,12 @@ bool File::isDirectory(String const& path) {
 
 void File::remove(String const& filename) {
   if (::remove(filename.utf8Ptr()) < 0)
-    throw IOException::format("remove error: %s", strerror(errno));
+    throw IOException::format("remove error: {}", strerror(errno));
 }
 
 void File::rename(String const& source, String const& target) {
   if (::rename(source.utf8Ptr(), target.utf8Ptr()) < 0)
-    throw IOException::format("rename error: %s", strerror(errno));
+    throw IOException::format("rename error: {}", strerror(errno));
 }
 
 void File::overwriteFileWithRename(char const* data, size_t len, String const& filename, String const& newSuffix) {
@@ -200,11 +220,11 @@ void* File::fopen(char const* filename, IOMode mode) {
 
   int fd = ::open(filename, oflag, 0666);
   if (fd < 0)
-    throw IOException::format("Error opening file '%s', error: %s", filename, strerror(errno));
+    throw IOException::format("Error opening file '{}', error: {}", filename, strerror(errno));
 
   if (mode & IOMode::Append) {
     if (lseek(fd, 0, SEEK_END) < 0)
-      throw IOException::format("Error opening file '%s', cannot seek: %s", filename, strerror(errno));
+      throw IOException::format("Error opening file '{}', cannot seek: {}", filename, strerror(errno));
   }
 
   return handleFromFd(fd);
@@ -221,7 +241,7 @@ void File::fseek(void* f, StreamOffset offset, IOSeek seekMode) {
     retCode = lseek(fd, offset, SEEK_END);
 
   if (retCode < 0)
-    throw IOException::format("Seek error: %s", strerror(errno));
+    throw IOException::format("Seek error: {}", strerror(errno));
 }
 
 StreamOffset File::ftell(void* f) {
@@ -237,7 +257,7 @@ size_t File::fread(void* file, char* data, size_t len) {
   if (ret < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return 0;
-    throw IOException::format("Read error: %s", strerror(errno));
+    throw IOException::format("Read error: {}", strerror(errno));
   } else {
     return ret;
   }
@@ -252,7 +272,7 @@ size_t File::fwrite(void* file, char const* data, size_t len) {
   if (ret < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return 0;
-    throw IOException::format("Write error: %s", strerror(errno));
+    throw IOException::format("Write error: {}", strerror(errno));
   } else {
     return ret;
   }
@@ -269,7 +289,7 @@ void File::fsync(void* file) {
 
 void File::fclose(void* file) {
   if (::close(fdFromHandle(file)) < 0)
-    throw IOException::format("Close error: %s", strerror(errno));
+    throw IOException::format("Close error: {}", strerror(errno));
 }
 
 StreamOffset File::fsize(void* file) {
@@ -280,16 +300,31 @@ StreamOffset File::fsize(void* file) {
 }
 
 size_t File::pread(void* file, char* data, size_t len, StreamOffset position) {
-  return ::pread(fdFromHandle(file), data, len, position);
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::read(fd, data, len);
+  // return ::pread(fdFromHandle(file), data, len, position);
 }
 
 size_t File::pwrite(void* file, char const* data, size_t len, StreamOffset position) {
-  return ::pwrite(fdFromHandle(file), data, len, position);
+  // return ::pwrite(fdFromHandle(file), data, len, position);
+  int fd = fdFromHandle(file);
+  if (lseek(fd, position, SEEK_SET) == -1) {
+    return -1;// error
+  }
+  return ::write(fd, data, len);
 }
 
 void File::resize(void* f, StreamOffset size) {
   if (::ftruncate(fdFromHandle(f), size) < 0)
-    throw IOException::format("resize error: %s", strerror(errno));
+    throw IOException::format("resize error: {}", strerror(errno));
+  // if (lseek(fdFromHandle(f), size, SEEK_SET) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
+  //
+  // if (::write(fdFromHandle(f), "", 1) < 0)
+  //   throw IOException::format("resize error: {}", strerror(errno));
 }
 
-}
+}// namespace Star

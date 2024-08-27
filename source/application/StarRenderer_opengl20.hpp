@@ -1,10 +1,10 @@
 #ifndef STAR_RENDERER_OPENGL_HPP
 #define STAR_RENDERER_OPENGL_HPP
 
-#include "StarTextureAtlas.hpp"
 #include "StarRenderer.hpp"
+#include "StarTextureAtlas.hpp"
 
-#include "GL/glew.h"
+#include <vitaGL.h>
 
 namespace Star {
 
@@ -194,6 +194,6 @@ private:
   shared_ptr<GlRenderBuffer> m_immediateRenderBuffer;
 };
 
-}
+}// namespace Star
 
 #endif
