@@ -62,3 +62,4 @@ _deps
 # Built Visual Studio Code Extensions
 *.vsix
 /vita-parse-core/venv/
+/vita-parse-core/
