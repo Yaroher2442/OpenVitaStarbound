@@ -1,5 +1,10 @@
 .idea
-vita-parse-core/venv
+vita-parse-core/venv/
+/lib
+/build
+/dist
+/assets
+/vita-parse-core/venv
 extras
 /build/
 /build_linux/
@@ -54,3 +59,4 @@ _deps
 
 # Built Visual Studio Code Extensions
 *.vsix
+/vita-parse-core/venv/
